@@ -39,7 +39,14 @@
 import { neon } from '@neondatabase/serverless';
 import crypto from 'node:crypto';
 
-const sql = neon(process.env.DATABASE_URL);
+// Cloudflare Workers forbid doing real work (or reading env vars) while the file
+// first loads, so the database client is created on the first request instead.
+let _sql = null;
+function getSql() {
+  if (!_sql) _sql = neon(process.env.DATABASE_URL);
+  return _sql;
+}
+const sql = (...args) => getSql()(...args);
 
 // ---------- password hashing for STUDENTS only ----------
 function hashPassword(password) {
@@ -321,7 +328,12 @@ async function clearFails(bucket) {
 // ---------- teacher helpers ----------
 // Verified against a fixed hash when the username does not exist, so a
 // wrong username and a wrong password take the same time to answer.
-const DUMMY_HASH = hashPassword('timing-equaliser-not-a-real-password');
+// Created lazily: hashPassword() uses random bytes, which Cloudflare Workers
+// do not allow while the file first loads.
+let _dummyHash = null;
+function getDummyHash() {
+  return _dummyHash || (_dummyHash = hashPassword('timing-equaliser-not-a-real-password'));
+}
 function pwFingerprint(stored) { return crypto.createHash('sha256').update(String(stored || '')).digest('hex').slice(0, 12); }
 function normName(v) { return String(v == null ? '' : v).trim().toLowerCase(); }
 function classKey(grade, cls) { return normName(grade) + '|' + normName(cls); }
@@ -482,7 +494,7 @@ const routes = {
     if (new Date(link.expires_at).getTime() <= Date.now()) return err('انتهت صلاحية هذا الرابط.', 403);
     // case-insensitive: phone keyboards often capitalise the first letter
     const trow = (await sql`SELECT id, full_name, username, teacher_password, subject, COALESCE(active, TRUE) AS active FROM teachers WHERE lower(username) = lower(${username}) LIMIT 1`)[0];
-    const passOk = verifyPassword(password, trow && trow.teacher_password ? trow.teacher_password : DUMMY_HASH);
+    const passOk = verifyPassword(password, trow && trow.teacher_password ? trow.teacher_password : getDummyHash());
     if (!trow || !trow.teacher_password || !passOk) { await recordFail(bucket); return err('بيانات الدخول غير صحيحة', 401); }
     if (trow.active === false) return err('تم تعطيل هذا الحساب. تواصل مع المدير.', 403);
     if (Number(link.teacher_id) !== Number(trow.id)) return err('هذا الرابط يخص معلماً آخر.', 403);

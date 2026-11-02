@@ -4,6 +4,14 @@ import { handler } from '../../netlify/functions/api.js';
 
 export async function onRequest(context) {
   const request = context.request;
+
+  // Copy Cloudflare environment variables/secrets (DATABASE_URL, SESSION_SECRET...)
+  // into process.env, which is where api.js reads them.
+  try {
+    for (const [k, v] of Object.entries(context.env || {})) {
+      if (typeof v === 'string') process.env[k] = v;
+    }
+  } catch (e) { /* process.env not writable: ignore */ }
   const url = new URL(request.url);
 
   // Netlify-style headers object (lowercase keys)
