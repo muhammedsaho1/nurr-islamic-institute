@@ -1,1 +1,1 @@
-# nurr-islamic-institute
+# NURR-ISLAMIC-INSTITUTE
